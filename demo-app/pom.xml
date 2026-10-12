@@ -20,6 +20,15 @@
       <artifactId>pricing-lib</artifactId>
       <version>${project.version}</version>
     </dependency>
+    <!-- Required by the NR agent's OpenTelemetry API support (app only; the library stays API-only) -->
+    <dependency>
+      <groupId>io.opentelemetry</groupId>
+      <artifactId>opentelemetry-sdk-extension-autoconfigure</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.opentelemetry</groupId>
+      <artifactId>opentelemetry-exporter-otlp</artifactId>
+    </dependency>
     <!-- Agent API for reporting errors; the real implementation comes from the -javaagent at runtime -->
     <dependency>
       <groupId>com.newrelic.agent.java</groupId>
