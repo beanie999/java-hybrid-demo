@@ -2,6 +2,9 @@ package com.example.pricing;
 
 import io.opentelemetry.api.GlobalOpenTelemetry;
 import io.opentelemetry.api.common.AttributeKey;
+import io.opentelemetry.api.common.Attributes;
+import io.opentelemetry.api.logs.Logger;
+import io.opentelemetry.api.logs.Severity;
 import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.SpanKind;
 import io.opentelemetry.api.trace.StatusCode;
@@ -10,7 +13,6 @@ import io.opentelemetry.context.Scope;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.Map;
-import java.util.concurrent.Callable;
 
 /**
  * Prices an order. Span tree produced per call:
@@ -23,7 +25,8 @@ import java.util.concurrent.Callable;
  * └── pricing.convertCurrency
  * </pre>
  *
- * Only the OpenTelemetry API is used; spans are exported by whatever agent/SDK the host registers.
+ * Only the OpenTelemetry API is used (traces and logs); signals are exported by whatever agent/SDK
+ * the host registers.
  */
 public class PricingService {
 
@@ -41,6 +44,8 @@ public class PricingService {
   private static final int BULK_THRESHOLD = 10;
 
   private final Tracer tracer = GlobalOpenTelemetry.getTracer(INSTRUMENTATION_NAME, "1.0.0");
+  private final Logger logger =
+      GlobalOpenTelemetry.get().getLogsBridge().loggerBuilder(INSTRUMENTATION_NAME).build();
 
   public Quote quote(Order order) {
     return quote(order, QuoteOptions.DEFAULT);
@@ -53,6 +58,7 @@ public class PricingService {
           span.setAttribute("order.id", order.id());
           span.setAttribute("order.currency", order.currency());
           span.setAttribute("order.item.count", order.items().size());
+          log(Severity.INFO, "Pricing order " + order.id() + " in " + order.currency(), order);
 
           BigDecimal subtotalUsd =
               order.items().stream()
@@ -73,6 +79,7 @@ public class PricingService {
           Quote result = convertCurrency(usd, order.currency());
 
           span.setAttribute("quote.total", result.total().doubleValue());
+          log(Severity.INFO, "Quote complete for " + order.id() + ", total " + result.total(), order);
           return result;
         });
   }
@@ -85,6 +92,7 @@ public class PricingService {
           BigDecimal discount = subtotal.multiply(rate).setScale(2, RoundingMode.HALF_UP);
           span.setAttribute("discount.rate", rate.doubleValue());
           span.setAttribute("discount.amount", discount.doubleValue());
+          log(Severity.INFO, "Applied discount rate " + rate + " to " + order.id(), order);
           return discount;
         });
   }
@@ -96,6 +104,9 @@ public class PricingService {
         SpanKind.CLIENT,
         span -> {
           span.setAttribute("rules.slow", options.slowRules());
+          if (options.slowRules()) {
+            log(Severity.WARN, "Discount rules store is slow for " + order.id(), order);
+          }
           sleep(options.slowRules() ? 300 : 20);
           int units = order.items().stream().mapToInt(LineItem::quantity).sum();
           span.setAttribute("order.unit.count", units);
@@ -126,6 +137,13 @@ public class PricingService {
           sleep(40);
           BigDecimal rate = USD_RATES.get(currency);
           if (rate == null) {
+            logger
+                .logRecordBuilder()
+                .setSeverity(Severity.ERROR)
+                .setSeverityText("ERROR")
+                .setBody("No exchange rate for currency " + currency)
+                .setAllAttributes(Attributes.of(AttributeKey.stringKey("order.id"), usd.orderId()))
+                .emit();
             throw new UnsupportedCurrencyException(currency);
           }
           span.setAttribute("currency.rate", rate.doubleValue());
@@ -159,6 +177,16 @@ public class PricingService {
     } finally {
       span.end();
     }
+  }
+
+  private void log(Severity severity, String message, Order order) {
+    logger
+        .logRecordBuilder()
+        .setSeverity(severity)
+        .setSeverityText(severity.name())
+        .setBody(message)
+        .setAllAttributes(Attributes.of(AttributeKey.stringKey("order.id"), order.id()))
+        .emit();
   }
 
   private static void sleep(long millis) {

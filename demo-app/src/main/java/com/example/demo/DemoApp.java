@@ -19,6 +19,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 /**
  * Endpoints:
@@ -34,6 +36,7 @@ import java.util.concurrent.atomic.AtomicLong;
  */
 public class DemoApp {
 
+  private static final Logger LOG = Logger.getLogger(DemoApp.class.getName());
   private static final PricingService PRICING = new PricingService();
   private static final AtomicLong ORDER_SEQ = new AtomicLong(1000);
 
@@ -44,7 +47,7 @@ public class DemoApp {
     server.createContext("/quote", DemoApp::handleQuote);
     server.setExecutor(Executors.newFixedThreadPool(8));
     server.start();
-    System.out.println("java-hybrid-demo listening on :" + port);
+    LOG.info("java-hybrid-demo listening on :" + port);
   }
 
   // The agent's built-in HttpServer instrumentation doesn't start transactions on every JVM,
@@ -65,8 +68,10 @@ public class DemoApp {
                 new LineItem("WIDGET-1", new BigDecimal("19.99"), qty),
                 new LineItem("GADGET-7", new BigDecimal("49.50"), 1)));
 
+    LOG.info("Quote request " + order.id() + " currency=" + currency + " qty=" + qty + " slow=" + slow);
     try {
       Quote q = PRICING.quote(order, new QuoteOptions(slow));
+      LOG.info("Quote request " + order.id() + " succeeded, total=" + q.total());
       respond(
           ex,
           200,
@@ -75,6 +80,7 @@ public class DemoApp {
                   + "\"tax\":%s,\"total\":%s}%n",
               q.orderId(), q.currency(), q.subtotal(), q.discount(), q.tax(), q.total()));
     } catch (UnsupportedCurrencyException e) {
+      LOG.log(Level.WARNING, "Quote request " + order.id() + " failed: " + e.getMessage(), e);
       NewRelic.noticeError(e);
       respond(ex, 400, "{\"error\":\"" + e.getMessage() + "\"}\n");
     }
