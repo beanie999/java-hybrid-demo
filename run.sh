@@ -10,5 +10,7 @@ export NEW_RELIC_APP_NAME="${NEW_RELIC_APP_NAME:-java-hybrid-demo}"
 # Let the agent capture spans created through the OpenTelemetry API (agent 9.1.0+)
 export NEW_RELIC_OPENTELEMETRY_ENABLED=true
 export NEW_RELIC_DISTRIBUTED_TRACING_ENABLED=true
+# Prerequisite for the agent's OTel SDK/autoconfigure integration
+export OTEL_JAVA_GLOBAL_AUTOCONFIGURE_ENABLED=true
 
 exec java -Xshare:off -javaagent:newrelic/newrelic.jar -jar demo-app/target/java-hybrid-demo.jar
