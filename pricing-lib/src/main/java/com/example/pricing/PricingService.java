@@ -5,6 +5,9 @@ import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.common.Attributes;
 import io.opentelemetry.api.logs.Logger;
 import io.opentelemetry.api.logs.Severity;
+import io.opentelemetry.api.metrics.DoubleHistogram;
+import io.opentelemetry.api.metrics.LongCounter;
+import io.opentelemetry.api.metrics.Meter;
 import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.SpanKind;
 import io.opentelemetry.api.trace.StatusCode;
@@ -25,7 +28,15 @@ import java.util.Map;
  * └── pricing.convertCurrency
  * </pre>
  *
- * Only the OpenTelemetry API is used (traces and logs); signals are exported by whatever agent/SDK
+ * Metrics recorded per call (attribute {@code currency}; the counter also has {@code outcome}):
+ *
+ * <ul>
+ *   <li>{@code pricing.quotes} - counter of quotes, by outcome (success/error)
+ *   <li>{@code pricing.quote.duration} - histogram of quote latency in ms
+ *   <li>{@code pricing.quote.value} - histogram of the quote total, in USD
+ * </ul>
+ *
+ * Only the OpenTelemetry API is used (traces, logs and metrics); signals are exported by whatever agent/SDK
  * the host registers.
  */
 public class PricingService {
@@ -51,7 +62,45 @@ public class PricingService {
     return quote(order, QuoteOptions.DEFAULT);
   }
 
+  private final Meter meter = GlobalOpenTelemetry.getMeter(INSTRUMENTATION_NAME);
+  private final LongCounter quoteCounter =
+      meter
+          .counterBuilder("pricing.quotes")
+          .setDescription("Number of quotes requested")
+          .setUnit("{quote}")
+          .build();
+  private final DoubleHistogram quoteDuration =
+      meter
+          .histogramBuilder("pricing.quote.duration")
+          .setDescription("Time taken to price an order")
+          .setUnit("ms")
+          .build();
+  private final DoubleHistogram quoteValue =
+      meter
+          .histogramBuilder("pricing.quote.value")
+          .setDescription("Quote total before currency conversion")
+          .setUnit("USD")
+          .build();
+
+  private static final AttributeKey<String> CURRENCY = AttributeKey.stringKey("currency");
+  private static final AttributeKey<String> OUTCOME = AttributeKey.stringKey("outcome");
+
   public Quote quote(Order order, QuoteOptions options) {
+    long startNanos = System.nanoTime();
+    String outcome = "success";
+    try {
+      return priceOrder(order, options);
+    } catch (RuntimeException e) {
+      outcome = "error";
+      throw e;
+    } finally {
+      Attributes currency = Attributes.of(CURRENCY, order.currency());
+      quoteCounter.add(1, Attributes.of(CURRENCY, order.currency(), OUTCOME, outcome));
+      quoteDuration.record((System.nanoTime() - startNanos) / 1_000_000.0, currency);
+    }
+  }
+
+  private Quote priceOrder(Order order, QuoteOptions options) {
     return traced(
         "pricing.quote",
         span -> {
@@ -76,6 +125,7 @@ public class PricingService {
                   discountUsd,
                   taxUsd,
                   subtotalUsd.subtract(discountUsd).add(taxUsd));
+          quoteValue.record(usd.total().doubleValue(), Attributes.of(CURRENCY, order.currency()));
           Quote result = convertCurrency(usd, order.currency());
 
           span.setAttribute("quote.total", result.total().doubleValue());
