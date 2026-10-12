@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Exercises every java-hybrid-demo endpoint in turn, sleeping between requests.
+# Sends randomly chosen requests to java-hybrid-demo, sleeping after each one.
 # Usage: ./load.sh [sleep_seconds=5] [executions=100]
-#   One execution = one pass through all endpoints, so 100 executions = 100 x 6 requests.
+#   One execution = one request to a randomly picked endpoint.
 # Override the target with BASE_URL (default http://localhost:8080).
 set -euo pipefail
 
@@ -21,9 +21,8 @@ ENDPOINTS=(
 echo "Target: $BASE_URL | executions: $COUNT | sleep: ${SLEEP}s between requests"
 
 for ((i = 1; i <= COUNT; i++)); do
-  for path in "${ENDPOINTS[@]}"; do
-    status=$(curl -s -o /dev/null -w '%{http_code}' "$BASE_URL$path" || echo "000")
-    printf '[%d/%d] %s -> %s\n' "$i" "$COUNT" "$path" "$status"
-    sleep "$SLEEP"
-  done
+  path="${ENDPOINTS[RANDOM % ${#ENDPOINTS[@]}]}"
+  status=$(curl -s -o /dev/null -w '%{http_code}' "$BASE_URL$path" || echo "000")
+  printf '[%d/%d] %s -> %s\n' "$i" "$COUNT" "$path" "$status"
+  sleep "$SLEEP"
 done
