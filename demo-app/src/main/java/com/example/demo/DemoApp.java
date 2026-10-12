@@ -7,6 +7,7 @@ import com.example.pricing.Quote;
 import com.example.pricing.QuoteOptions;
 import com.example.pricing.UnsupportedCurrencyException;
 import com.newrelic.api.agent.NewRelic;
+import com.newrelic.api.agent.Trace;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
@@ -46,7 +47,11 @@ public class DemoApp {
     System.out.println("java-hybrid-demo listening on :" + port);
   }
 
+  // The agent's built-in HttpServer instrumentation doesn't start transactions on every JVM,
+  // so start the transaction explicitly; the library's OTel spans then nest under it.
+  @Trace(dispatcher = true)
   private static void handleQuote(HttpExchange ex) throws IOException {
+    NewRelic.setTransactionName("Web", "/quote");
     Map<String, String> params = parseQuery(ex.getRequestURI().getRawQuery());
     String currency = params.getOrDefault("currency", "USD").toUpperCase();
     int qty = Integer.parseInt(params.getOrDefault("qty", "3"));

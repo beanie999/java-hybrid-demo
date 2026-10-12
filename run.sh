@@ -11,4 +11,4 @@ export NEW_RELIC_APP_NAME="${NEW_RELIC_APP_NAME:-java-hybrid-demo}"
 export NEW_RELIC_OPENTELEMETRY_ENABLED=true
 export NEW_RELIC_DISTRIBUTED_TRACING_ENABLED=true
 
-exec java -javaagent:newrelic/newrelic.jar -jar demo-app/target/java-hybrid-demo.jar
+exec java -Xshare:off -javaagent:newrelic/newrelic.jar -jar demo-app/target/java-hybrid-demo.jar
